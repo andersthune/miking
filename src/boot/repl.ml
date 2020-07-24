@@ -122,11 +122,16 @@ let rec read_user_input () =
 (* Evaluate a term given existing environments.
    Returns updated environments along with evaluation result.
 *)
-let eval_with_envs (langs, nss, name2sym, sym2term) term =
+let eval_with_envs ?(skip_eval = false) (langs, nss, name2sym, sym2term) term =
   let new_langs, flattened = flatten_with_env langs term in
   let new_nss, desugared = desugar_post_flatten_with_nss nss flattened in
   let new_name2sym, symbolized = Mexpr.symbolize_toplevel name2sym desugared in
-  let new_sym2term, result = Mexpr.eval_toplevel sym2term symbolized in
+  let new_sym2term, result =
+    if skip_eval then
+      sym2term, tmUnit
+    else
+      Mexpr.eval_toplevel sym2term symbolized
+    in
   ((new_langs, new_nss, new_name2sym, new_sym2term), result)
 
 (* Wrap the final mexpr in a lambda application to prevent scope leak *)
@@ -137,13 +142,15 @@ let wrap_mexpr (Program(inc, tops, tm)) =
 
 let repl_merge_includes = merge_includes (Sys.getcwd ()) []
 
-let repl_envs = ref (Record.empty, USMap.empty, builtin_name2sym, builtin_sym2term)
+let builtin_envs = (Record.empty, USMap.empty, builtin_name2sym, builtin_sym2term)
+
+let repl_envs = ref builtin_envs
 
 let initialize_envs () =
   let initial_envs, _ = Program([],[],TmConst(NoInfo,CInt(0)))
                         |> add_prelude
                         |> repl_merge_includes
-                        |> eval_with_envs !repl_envs in
+                        |> eval_with_envs builtin_envs in
   repl_envs := initial_envs
 
 let repl_eval_ast prog =
