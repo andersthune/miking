@@ -15,14 +15,9 @@ set -e
 # Setup environment variable to find standard library
 cd stdlib; export MCORE_STDLIB=`pwd`; cd ..;
 
-BASE_DEPS="batteries str linenoise"
+DEPS="batteries str linenoise"
 
-# General function for building the project
-build() {
-    mkdir -p build
-    (cd src/boot;
-    DEPS=$BASE_DEPS
-    > dune
+prepare_deps() {
     if [[ -n $MI_ENABLE_SUNDIALS ]]; then
         DEPS="$DEPS sundialsml"
         echo "(copy_files ext/*)" >> dune
@@ -35,24 +30,35 @@ build() {
     else
         echo "(copy_files py-skel/*)" >> dune
     fi
-    cat >> dune << EndOfMessage
+}
 
-(ocamllex lexer)
-(ocamlyacc parser)
+# General function for building the project
+build_base() {
+    mkdir -p build
+    (cd src/boot;
+    > dune
+    echo "(ocamllex lexer)" >> dune
+    echo "(ocamlyacc parser)" >> dune
+    prepare_deps
+    cat >> dune << EndOfMessage
+$3
 
 (executable
-  (name boot)
+  (name $1)
   (libraries $DEPS)
 )
 EndOfMessage
-    dune build boot.exe && cp -f _build/default/boot.exe ../../build/mi)
+    dune build "$1.exe" && cp -f "_build/default/$1.exe" "../../build/$2")
+}
+
+build() {
+    build_base boot mi ""
 }
 
 build_kernel() {
-    mkdir -p build
-    (cd src/boot;
-    cp kernel/dune-kernel dune
-    dune build kernel.exe && cp -f _build/default/kernel.exe ../../build/kernel)
+    export MI_ENABLE_PYTHON=1
+    DEPS="$DEPS jupyter-kernel"
+    build_base kernel kernel "(copy_files kernel/*)"
 }
 
 # Install the boot interpreter locally for the current user
