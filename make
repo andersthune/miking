@@ -61,6 +61,11 @@ build_kernel() {
     build_base kernel kernel "(copy_files kernel/*)"
 }
 
+build_langserver() {
+    DEPS="$DEPS lsp"
+    build_base langserver langserver "(copy_files langserver/*)"
+}
+
 # Install the boot interpreter locally for the current user
 install() {
     bin_path=$HOME/.local/bin/
@@ -130,6 +135,9 @@ case $1 in
     kernel-install)
         build_kernel
         install_kernel
+        ;;
+    langserver)
+        build_langserver
         ;;
     install)
         build

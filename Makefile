@@ -19,6 +19,9 @@ kernel:
 kernel-install:
 	@./make kernel-install
 
+langserver:
+	@./make langserver
+
 test:
 	@./make test
 
