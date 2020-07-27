@@ -70,10 +70,10 @@ let on_request :
           prerr_endline "Got completion candidates:";
           List.iter prerr_endline raw_completions;
           let completions = List.map (fun x -> CompletionItem.create ~label:x ()) raw_completions in
-          Ok (Some (`List completions), state)
-        with e -> prerr_endline (Printexc.to_string e); Ok (None, state)
+          (Some (`List completions), state)
+        with e -> prerr_endline (Printexc.to_string e); (None, state)
       in
-      Fiber.return @@ Result.bind prog_result try_to_get_completions
+      Fiber.return @@ Result.map try_to_get_completions prog_result
     | _ -> not_supported ()
 
 let on_notification server (notification : Client_notification.t) : State.t Fiber.t =
