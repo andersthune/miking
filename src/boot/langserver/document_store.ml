@@ -1,7 +1,7 @@
 open Lsp
 module Table = Stdune.Table
 
-type t = (Uri.t, Text_document.t) Table.t
+type t = (Uri.t, Document.t) Table.t
 
 let make () = Table.create (module Uri) 50
 
