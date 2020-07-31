@@ -5,6 +5,7 @@ open Lwt
 
 let current_output = ref (BatIO.output_string ())
 let other_actions = ref []
+let ipm_path = Sys.getenv_opt "MI_IPM_PATH"
 
 let text_data_of_string str =
   Client.Kernel.mime ~ty:"text/plain" str
@@ -73,43 +74,46 @@ let eval_python code =
   else
     Some(Py.Object.to_string py_val)
 
-let visualize_model code count =
-  let open Ast in
-  let seq2ustring t =
-    match t with
-    | TmSeq(fi, seq) -> tmseq2ustring fi seq
-    | _ -> failwith "Not a string yo"
-  in
-  let model_str = code
-    |> parse_prog_or_mexpr (Printf.sprintf "In [%d]" count)
+let parse_and_eval code count =
+    parse_prog_or_mexpr (Printf.sprintf "In [%d]" count) code
     |> repl_eval_ast
-    |> seq2ustring
-    |> Ustring.to_utf8
-  in
-  let iframe_str = {|<embed src="http://localhost:3000/" width="100%" height="400"</embed>|} in
-  let file = "/home/andersthune/Documents/work/kth/summer20/miking-ipm/src/visual/webpage/js/data-source.js" in
-  let oc = open_out file in
-  Printf.fprintf oc "%s\n" model_str;
-  close_out oc;
-  other_actions := Client.Kernel.mime ~ty:"text/html" iframe_str::!other_actions;
-  None
+
+let visualize_model code count =
+  match ipm_path with
+  | Some path ->
+    let seq2string tm =
+      let open Ast in
+      match tm with
+      | TmSeq(fi, seq) -> tmseq2ustring fi seq |> Ustring.to_utf8
+      | _ -> Msg.raise_error (tm_info tm) "Expected a string to visualize, but got other term"
+    in
+    let model_str = parse_and_eval code count |> seq2string in
+    let iframe_str = {|<embed src="http://localhost:3000/" width="100%" height="400"</embed>|} in
+    let file = path ^ "/src/visual/webpage/js/data-source.js" in
+    let oc = open_out file in
+    Printf.fprintf oc "%s\n" model_str;
+    close_out oc;
+    other_actions := Client.Kernel.mime ~ty:"text/html" iframe_str::!other_actions;
+    None
+  | None -> Msg.raise_error NoInfo "MI_IPM_PATH is unset; cannot use %%visualize"
 
 let exec ~count code =
   let magic_indicator, content =
     try BatString.split code ~by:"\n"
     with Not_found -> ("", code)
   in
-  try
-    let result =
+  let result = try
+    Ok (
       match magic_indicator with
       | "%%python" -> eval_python content
       | "%%visualize" -> visualize_model content count
       | _ ->
-        parse_prog_or_mexpr (Printf.sprintf "In [%d]" count) code
-        |> repl_eval_ast
+        parse_and_eval code count
         |> repl_format
-        |> Option.map (Ustring.to_utf8)
-    in
+        |> Option.map (Ustring.to_utf8))
+    with e -> error_to_ustring e |> Ustring.to_utf8 |> Result.error
+  in
+  let ok_message result =
     ignore @@ Py.Module.get_function ocaml_module "after_exec" [||];
     let new_actions =
       match BatIO.close_out !current_output with
@@ -119,9 +123,10 @@ let exec ~count code =
     let actions = List.rev new_actions in
     current_output := BatIO.output_string ();
     other_actions := [];
-    return (Ok { Client.Kernel.msg=result
-               ; Client.Kernel.actions=actions})
-  with e -> return (Error (error_to_ustring e |> Ustring.to_utf8))
+    { Client.Kernel.msg=result
+    ; Client.Kernel.actions=actions }
+  in
+  return (Result.map ok_message result)
 
 let complete ~pos str =
   let start_pos, completions = get_completions str pos in
@@ -145,8 +150,10 @@ for creating embedded domain-specific and general-purpose languages"
   in
   let config = Client_main.mk_config ~usage:"Usage: mcore_kernel --connection-file {connection_file}" () in
   let kernel = Client_main.main ~config:config ~kernel:mcore_kernel in
-  let ipm_server = Lwt_process.exec
-    ~cwd:"/home/andersthune/Documents/work/kth/summer20/miking-ipm"
-    ("", [|"node"; "src/visual/boot.js"; "test/test.mc"|])
-  in
-  Lwt_main.run (kernel >>= fun _ -> ipm_server)
+  match ipm_path with
+  | Some path ->
+      let ipm_server = Lwt_process.exec ~cwd:path
+        ("", [|"node"; "src/visual/boot.js"; "--no-open"|])
+      in
+      Lwt_main.run (kernel >>= fun _ -> ipm_server >|= ignore)
+  | None -> Lwt_main.run kernel
